@@ -90,6 +90,15 @@ EDITOR_ONLY_FILES = {"rpg_rt.lmt.po"}
 EDITOR_ONLY_CTX = {"chipsets.name", "animations.name", "terrains.name"}
 
 
+# Yume 2kki's translation guidelines (wikiwiki.jp/yumenikki-g3, 決定事項 >
+# 翻訳ガイドライン) say some text must stay in the original. Shown in the
+# report so nobody "fills" these gaps; see notes/translation.md.
+KEEP_ORIGINAL = {
+    "Map0899.po": "wallpaper gallery: illustration titles and artist names "
+                  "must stay untranslated",
+}
+
+
 def is_editor_only(po_name: str, ctx: str) -> bool:
     return po_name.lower() in EDITOR_ONLY_FILES or norm_ctx(ctx) in EDITOR_ONLY_CTX
 
@@ -550,19 +559,20 @@ def write_report(path: Path, stats: dict) -> None:
         "",
         "Catalogues with the most untranslated Japanese entries.",
         "",
-        "| file | untranslated | Japanese | coverage |",
-        "|---|---:|---:|---:|",
+        "| file | untranslated | Japanese | coverage | note |",
+        "|---|---:|---:|---:|---|",
     ]
     gaps = sorted(((n, c) for n, c in stats["files"].items()
                    if c["japanese"] > c["japanese_translated"]),
                   key=lambda nc: -(nc[1]["japanese"] - nc[1]["japanese_translated"]))
     for name, c in gaps[:40]:
         lines.append(f"| `{name}` | {c['japanese'] - c['japanese_translated']} "
-                     f"| {c['japanese']} | {pct(c['japanese_translated'], c['japanese']):.0f}% |")
+                     f"| {c['japanese']} | {pct(c['japanese_translated'], c['japanese']):.0f}% "
+                     f"| {KEEP_ORIGINAL.get(name, '')} |")
     if len(gaps) > 40:
-        lines.append(f"| … {len(gaps) - 40} more | | | |")
+        lines.append(f"| … {len(gaps) - 40} more | | | | |")
     if not gaps:
-        lines.append("| _none_ | | | |")
+        lines.append("| _none_ | | | | |")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
