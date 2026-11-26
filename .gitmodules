@@ -1,0 +1,6 @@
+[submodule "vendor/liblcf"]
+	path = vendor/liblcf
+	url = https://github.com/EasyRPG/liblcf
+[submodule "vendor/Player"]
+	path = vendor/Player
+	url = https://github.com/EasyRPG/Player
