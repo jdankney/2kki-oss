@@ -75,3 +75,28 @@ def test_dry_run_changes_nothing(tmp_path):
     before = snapshot(tmp_path / "xml")
     apply(tmp_path, "--dry-run")
     assert snapshot(tmp_path / "xml") == before
+
+
+def roundtrip_diff(tmp_path, old: str, new: str) -> str:
+    from conftest import load_script
+    import subprocess
+    content = load_script("content")
+    a = write(tmp_path / "a" / "Map.emu", old.encode())
+    b = write(tmp_path / "b" / "Map.emu", new.encode())
+    patch = write(tmp_path / "Map.patch", content.diff_files(a, b, "Map.emu").encode())
+    subprocess.run(["patch", "-p1", "-s", "-d", str(tmp_path / "a"), "-i", str(patch)],
+                   check=True, stdin=subprocess.DEVNULL)
+    return a.read_bytes().decode()
+
+
+def test_diff_keeps_unicode_line_separators_inside_lines(tmp_path):
+    # str.splitlines() would also split on these; patch only splits on \n.
+    old = "<s>a b</s>\n<s>c\x1cd</s>\n<s>e\x0cf</s>\n"
+    new = old.replace("c\x1cd", "C\x1cD")
+    assert roundtrip_diff(tmp_path, old, new) == new
+
+
+def test_diff_handles_missing_final_newline(tmp_path):
+    old = "one\ntwo"
+    new = "one\nTWO"
+    assert roundtrip_diff(tmp_path, old, new) == new

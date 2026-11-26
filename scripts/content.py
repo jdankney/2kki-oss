@@ -117,13 +117,36 @@ class Baseline:
         shutil.rmtree(self._tmp, ignore_errors=True)
 
 
+def split_lines(text: str) -> list[str]:
+    """Split on "\n" only, keeping it, exactly as `patch` sees lines.
+
+    str.splitlines() also splits on \x0b, \x0c, \x1c-\x1e, \x85, \u2028
+    and \u2029, which would produce hunks that `patch` cannot apply.
+    """
+    lines = text.split("\n")
+    out = [line + "\n" for line in lines[:-1]]
+    if lines[-1]:
+        out.append(lines[-1])
+    return out
+
+
 def diff_files(old: Path, new: Path, rel: str) -> str:
     import difflib
-    old_lines = old.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
-    new_lines = new.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
-    diff = difflib.unified_diff(old_lines, new_lines,
-                                fromfile=f"a/{rel}", tofile=f"b/{rel}")
-    return "".join(diff)
+    # newline="": no universal-newline translation, so a stray CR survives.
+    # (open() rather than Path.read_text(newline=...), which needs 3.13.)
+    with old.open(encoding="utf-8", newline="") as fh:
+        old_lines = split_lines(fh.read())
+    with new.open(encoding="utf-8", newline="") as fh:
+        new_lines = split_lines(fh.read())
+    out = []
+    for line in difflib.unified_diff(old_lines, new_lines,
+                                     fromfile=f"a/{rel}", tofile=f"b/{rel}"):
+        # difflib leaves a last line without "\n" as is; patch needs the
+        # marker git and diff(1) emit.
+        if not line.endswith("\n"):
+            line += "\n\\ No newline at end of file\n"
+        out.append(line)
+    return "".join(out)
 
 
 def apply_patch(xml: Path, patch: Path, dry_run: bool) -> tuple[str, str]:
