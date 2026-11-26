@@ -29,8 +29,10 @@ scripts/verify.py          sanity checks
 scripts/audit.py           asset reference audit (missing / RTP / unused)
 scripts/map_tree.py        analyse / prune the RPG_RT.lmt map tree
 scripts/translate.py       generate EasyRPG Player .po catalogues
+scripts/content.py         baseline/export/apply original XML content
 translation/glossary.json  curated English glossary (terms + phrases)
 translation/overrides.json curated whole-message translations
+content/                   committed diffs + new files for our own content
 notes/encoding.md          CP932/CP866 filename mojibake evidence
 notes/roundtrip.md         XML round-trip fidelity notes
 notes/assets.md            asset audit findings
@@ -68,6 +70,25 @@ $EDITOR xml/Map0001.emu
 make data        # xml -> build/game/*.lmu (only edited files)
 make run
 ```
+
+## Authoring original content
+
+The base data is not committed. Our own edits are stored as diffs:
+
+```sh
+make content-baseline   # once, after extract + prune-tree
+make content-status     # modified / added / deleted XML
+make content-export     # write content/patches + content/files
+```
+
+A collaborator bootstraps and applies it with:
+
+```sh
+make extract && make prune-tree
+make content-apply
+```
+
+See `content/README.md` for details.
 
 ## Important: filename encoding
 
@@ -114,7 +135,7 @@ permissively licensed content — that is a separate, much larger content effort
 
 Done: asset audit (`notes/assets.md`), map-tree prune (`notes/map-tree.md`),
 translation pipeline (`notes/translation.md`), CR round-trip fix
-(`notes/roundtrip.md`).
+(`notes/roundtrip.md`), original-content tracking (`content/README.md`).
 
 1. **RTP:** install the RPG Maker 2000 RTP (or point `--rtp-path` at one) so
    default SE, battle animations and backdrops resolve.
@@ -122,5 +143,5 @@ translation pipeline (`notes/translation.md`), CR round-trip fix
    first dream maps. ~4k unique lines remain.
 3. **Map index:** graph of teleports, connections and common-event calls so the
    map tree is navigable in text.
-4. **Original content:** track new/edited maps as XML diffs against the base,
-   so the project can carry its own content without redistributing the originals.
+4. **Author:** use `content/` to add new maps/events; keep the base assets out
+   of the repo.

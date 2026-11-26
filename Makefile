@@ -11,6 +11,7 @@
 #   make translate generate translation/<lang>/*.po (EasyRPG Player)
 #   make run-en    run the game with the English translation
 #   make patch-liblcf apply the optional upstream CR fix and rebuild
+#   make content-* content baseline/status/export/apply/check
 #   make clean     remove build/ and xml/
 #
 # Everything is derived from original/ which is read-only and never modified.
@@ -32,12 +33,12 @@ LIBLCF_CONFIG  ?= $(PREFIX)/lib/cmake/liblcf/liblcf-config.cmake
 
 CMAKE_FLAGS := -G Ninja -DCMAKE_BUILD_TYPE=Release
 
-.PHONY: all extract xml data player run run-en verify audit map-tree prune-tree translate patch-liblcf clean distclean help
+.PHONY: all extract xml data player run run-en verify audit map-tree prune-tree translate patch-liblcf content-baseline content-status content-export content-apply content-check clean distclean help
 
 all: extract
 
 help:
-	@sed -n '1,15p' Makefile | sed 's/^# \{0,1\}//'
+	@sed -n '1,/^$$/p' Makefile | sed 's/^# \{0,1\}//'
 
 # ---------------------------------------------------------------- liblcf ---
 $(LCF2XML):
@@ -112,6 +113,22 @@ map-tree: extract
 prune-tree: $(LCF2XML)
 	$(PYTHON) scripts/map_tree.py --lmt $(XML)/RPG_RT.emt --game $(GAME) --apply
 	$(PYTHON) scripts/rebuild.py --xml $(XML) --game $(GAME) --lcf2xml $(LCF2XML)
+
+# --------------------------------------------------------------- content ---
+content-baseline:
+	$(PYTHON) scripts/content.py baseline --xml $(XML) --content content
+
+content-status:
+	$(PYTHON) scripts/content.py status --xml $(XML) --content content
+
+content-export:
+	$(PYTHON) scripts/content.py export --xml $(XML) --content content
+
+content-apply:
+	$(PYTHON) scripts/content.py apply --xml $(XML) --content content
+
+content-check:
+	$(PYTHON) scripts/content.py check --xml $(XML) --content content
 
 # ----------------------------------------------------------------- clean ---
 clean:
