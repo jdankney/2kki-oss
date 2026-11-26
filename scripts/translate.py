@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+import shutil
 import sys
 import time
 import xml.etree.ElementTree as ET
@@ -97,6 +99,127 @@ def write_po(path: Path, entries: list[tuple[str, str]], glossary: "Glossary",
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines), encoding="utf-8")
     return total, translated
+
+
+# ---------------------------------------------------------------------------
+# PO reading / translation memory
+# ---------------------------------------------------------------------------
+_PO_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\"}
+
+
+def po_unescape(s: str) -> str:
+    return re.sub(r"\\(.)", lambda m: _PO_ESCAPES.get(m.group(1), "\\" + m.group(1)), s)
+
+
+def read_po(path: Path) -> list[tuple[str, str, str]]:
+    """Return (msgctxt, msgid, msgstr) for every entry except the header.
+
+    Handles multi-line strings (``msgid ""`` + continuation lines, as
+    lcftrans writes them) and skips obsolete (``#~``) entries. ``#, fuzzy``
+    translations are returned with an empty msgstr, as gettext treats them
+    as untranslated. Plural forms are ignored (Player does not use them).
+    """
+    entries: list[tuple[str, str, str]] = []
+    cur: dict[str, str] = {}
+    cur_fuzzy = next_fuzzy = False
+    field = ""
+
+    def flush() -> None:
+        if cur.get("msgid"):
+            entries.append((cur.get("msgctxt", ""), cur["msgid"],
+                            "" if cur_fuzzy else cur.get("msgstr", "")))
+        cur.clear()
+
+    for raw in path.read_text(encoding="utf-8-sig").split("\n"):
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            # Comments only appear between entries: the previous one is done.
+            flush()
+            field = ""
+            if line.startswith("#,") and "fuzzy" in line:
+                next_fuzzy = True
+            continue
+        if line.startswith('"'):
+            if field:
+                cur[field] += po_unescape(line[1:-1])
+            continue
+        keyword, _, rest = line.partition(" ")
+        if keyword not in ("msgctxt", "msgid", "msgstr"):
+            field = ""
+            continue
+        # A new entry starts at msgctxt, or at msgid unless only its own
+        # msgctxt has been read so far.
+        if keyword == "msgctxt" or (keyword == "msgid" and "msgid" in cur):
+            flush()
+            cur_fuzzy, next_fuzzy = next_fuzzy, False
+        elif keyword == "msgid" and not cur:
+            cur_fuzzy, next_fuzzy = next_fuzzy, False
+        field = keyword
+        cur[field] = po_unescape(rest.strip()[1:-1])
+    flush()
+    return entries
+
+
+_DB_CTX = re.compile(r"^([a-z0-9_]+)\.\d+\.([a-z0-9_]+)$")
+
+
+def norm_ctx(ctx: str) -> str:
+    """``actors.1.name`` -> ``actors.name`` (Player tries both, in that order)."""
+    m = _DB_CTX.match(ctx)
+    return f"{m.group(1)}.{m.group(2)}" if m else ctx
+
+
+class TranslationMemory:
+    """Existing translations (e.g. a community .po set), keyed by msgid.
+
+    Lookup prefers the same catalogue file (``Map0042.po``), then the same
+    context and msgid in any other file of the set: a message moved
+    between maps or into a common event between game versions still
+    matches. Text that changed between versions does not match at all;
+    nothing is guessed.
+    """
+
+    def __init__(self) -> None:
+        self.by_file: dict[tuple[str, str, str], str] = {}
+        # (ctx, msgid) -> file key it first came from
+        self.anywhere: dict[tuple[str, str], tuple[str, str, str]] = {}
+        self.used: set[tuple[str, str, str]] = set()
+        self.files = 0
+
+    def add_file(self, name: str, entries: list[tuple[str, str, str]]) -> None:
+        self.files += 1
+        fname = name.lower()
+        for ctx, msgid, msgstr in entries:
+            if not msgid or not msgstr:
+                continue
+            key = (norm_ctx(ctx), msgid)
+            self.by_file[(fname, *key)] = msgstr
+            self.anywhere.setdefault(key, (fname, *key))
+
+    def load_dir(self, directory: Path) -> None:
+        for po in sorted(directory.glob("*.po")):
+            self.add_file(po.name, read_po(po))
+
+    def lookup(self, po_name: str, ctx: str, msgid: str) -> tuple[str, str]:
+        key = (norm_ctx(ctx), msgid)
+        fkey = (po_name.lower(), *key)
+        if fkey in self.by_file:
+            self.used.add(fkey)
+            return self.by_file[fkey], "import"
+        if key in self.anywhere:
+            origin = self.anywhere[key]
+            self.used.add(origin)
+            return self.by_file[origin], "import-moved"
+        return "", ""
+
+    def unused(self) -> int:
+        """Imported translations this game version never asked for.
+
+        A high number means the imported set targets a different game
+        version (text that changed or was added after it)."""
+        return len(self.by_file.keys() - self.used)
 
 
 class Glossary:

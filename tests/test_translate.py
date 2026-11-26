@@ -57,3 +57,88 @@ def test_po_header_uses_the_language_code(tmp_path):
     po = tmp_path / "x.po"
     translate.write_po(po, [("", "はい")], gl, lang="de")
     assert '"Language: de\\n"' in po.read_text()
+
+
+PO_SAMPLE = r'''msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+
+#. ID 6, Page 2
+msgctxt "actors.name"
+msgid "うろつき"
+msgstr "Urotsuki"
+
+#. lcftrans multi-line style
+msgid ""
+"\\>一行目\n"
+"二行目 \"引用\""
+msgstr ""
+"\\>Line one\n"
+"Line two \"quoted\""
+
+msgid "未訳"
+msgstr ""
+
+#, fuzzy
+msgid "あいまい"
+msgstr "Fuzzy guess"
+
+#~ msgid "古い"
+#~ msgstr "Obsolete"
+msgid "最後"
+msgstr "Last"
+'''
+
+
+def test_read_po(tmp_path):
+    po = tmp_path / "Map0001.po"
+    po.write_text(PO_SAMPLE, encoding="utf-8")
+    assert translate.read_po(po) == [
+        ("actors.name", "うろつき", "Urotsuki"),
+        ("", '\\>一行目\n二行目 "引用"', '\\>Line one\nLine two "quoted"'),
+        ("", "未訳", ""),
+        ("", "あいまい", ""),
+        ("", "最後", "Last"),
+    ]
+
+
+def test_read_po_round_trips_what_write_po_writes(tmp_path):
+    gl = translate.Glossary(tmp_path / "none.json")
+    po = tmp_path / "x.po"
+    entries = [("", 'a\\b "c"\nd'), ("skills.3.name", "技")]
+    translate.write_po(po, entries, gl)
+    assert [(c, m) for c, m, _s in translate.read_po(po)] == entries
+
+
+def test_norm_ctx():
+    assert translate.norm_ctx("actors.12.name") == "actors.name"
+    assert translate.norm_ctx("terms.gold") == "terms.gold"
+    assert translate.norm_ctx("actors.name") == "actors.name"
+    assert translate.norm_ctx("") == ""
+
+
+def test_translation_memory_prefers_same_file_then_moved():
+    tm = translate.TranslationMemory()
+    tm.add_file("RPG_RT.ldb.po", [("actors.name", "うろつき", "Urotsuki")])
+    tm.add_file("Map0002.po", [("", "はい", "Yes (map 2)"), ("", "空", "")])
+    tm.add_file("Map0005.po", [("", "はい", "Yes (map 5)"), ("", "移動", "Moved")])
+    # Indexed DB context, case-insensitive catalogue name.
+    assert tm.lookup("rpg_rt.ldb.po", "actors.1.name", "うろつき") == ("Urotsuki", "import")
+    assert tm.lookup("Map0005.po", "", "はい") == ("Yes (map 5)", "import")
+    # Message that sits in another map in the imported version.
+    assert tm.lookup("Map0002.po", "", "移動") == ("Moved", "import-moved")
+    # Empty translations are not memory.
+    assert tm.lookup("Map0002.po", "", "空") == ("", "")
+    assert tm.unused() == 1      # Map0002 "はい" was never asked for
+
+
+def test_read_po_context_entry_followed_by_plain_entry(tmp_path):
+    # No comment or blank line between entries (our own writer's style
+    # has blank lines, but entries may also follow directly).
+    po = tmp_path / "x.po"
+    po.write_text('msgctxt "actors.name"\nmsgid "名前"\nmsgstr ""\n'
+                  'msgid "本文"\nmsgstr "Body"\n'
+                  '#, fuzzy\nmsgctxt "c"\nmsgid "曖昧"\nmsgstr "Guess"\n'
+                  'msgid "次"\nmsgstr "Next"\n', encoding="utf-8")
+    assert translate.read_po(po) == [
+        ("actors.name", "名前", ""), ("", "本文", "Body"), ("c", "曖昧", ""), ("", "次", "Next")]
