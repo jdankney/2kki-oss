@@ -28,6 +28,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -90,8 +91,18 @@ def choose_roots(src: Path) -> tuple[Path, list[Path]]:
     def lmu_count(p: Path) -> int:
         return sum(1 for _ in p.glob("*.lmu"))
 
-    base_candidates = [p for p in roots if "patch" not in str(p).lower()]
-    patch_roots = [p for p in roots if "patch" in str(p).lower()]
+    # Judge "patch" by the path *inside* src only: the checkout itself may
+    # live under a directory such as ~/2kki-patches/.
+    def is_patch(p: Path) -> bool:
+        return "patch" in str(p.relative_to(src)).lower()
+
+    def natural_key(p: Path) -> list:
+        # patch2 before patch10, so overlays apply in release order.
+        return [int(t) if t.isdigit() else t.lower()
+                for t in re.split(r"(\d+)", str(p.relative_to(src)))]
+
+    base_candidates = [p for p in roots if not is_patch(p)]
+    patch_roots = sorted((p for p in roots if is_patch(p)), key=natural_key)
 
     if not base_candidates:
         # everything lives under a patch-named dir; fall back to the biggest
