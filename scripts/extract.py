@@ -182,15 +182,21 @@ def write_ini(src_ini: Path, dst_ini: Path, dry: bool) -> None:
 
 def convert_lcf_to_xml(game_dir: Path, xml_dir: Path, lcf2xml: Path,
                        force_xml: bool, maps_limit: int, no_cr_escape: bool,
-                       dry_run: bool) -> tuple[list[Path], int, int, int]:
-    """Convert every LCF file in game_dir to XML in xml_dir."""
+                       dry_run: bool
+                       ) -> tuple[list[Path], int, int, int, set[Path]]:
+    """Convert every LCF file in game_dir to XML in xml_dir.
+
+    Returns (xml files, xml bytes, cached count, CR-escaped count, the set
+    of LCF paths whose XML was (re)generated in this run).
+    """
     xml_files: list[Path] = []
     xml_bytes = 0
     xml_skipped = 0
     cr_escaped = 0
+    converted: set[Path] = set()
     if not lcf2xml.is_file():
         print(f"warning: lcf2xml not found at {lcf2xml}; skipping XML", file=sys.stderr)
-        return xml_files, xml_bytes, xml_skipped, cr_escaped
+        return xml_files, xml_bytes, xml_skipped, cr_escaped, converted
 
     xml_dir.mkdir(parents=True, exist_ok=True)
     lcf_files = sorted(
@@ -230,11 +236,40 @@ def convert_lcf_to_xml(game_dir: Path, xml_dir: Path, lcf2xml: Path,
                 out = xml_dir / (p.stem + XML_EXT[p.suffix.lower()])
                 if out.is_file() and escape_cr_in_xml(out):
                     cr_escaped += 1
+        converted.update(batch)
         print(f"  converted {min(i + chunk, len(todo))}/{len(todo)}")
 
     xml_files = sorted(xml_dir.glob("*"))
     xml_bytes = sum(p.stat().st_size for p in xml_files if p.is_file())
-    return xml_files, xml_bytes, xml_skipped, cr_escaped
+    return xml_files, xml_bytes, xml_skipped, cr_escaped, converted
+
+
+def sync_lcf_mtimes(lcf_files: list[Path], xml_dir: Path,
+                    converted: set[Path]) -> int:
+    """Set LCF mtimes so ``make data`` (rebuild.py) does the right thing.
+
+    rebuild.py rebuilds an LCF file when its XML is newer. After this run:
+
+    * XML converted in this run matches its LCF byte for byte: mark the
+      LCF fresh so untouched maps keep their exact original bytes.
+    * XML that was *cached* may hold edits (or the pruned map tree) that
+      the freshly copied original LCF does not: mark the LCF older than
+      its XML so the next ``make data`` rebuilds it.
+
+    Returns the number of LCF files left stale.
+    """
+    stale = 0
+    for lcf in lcf_files:
+        if lcf.suffix.lower() not in LCF_EXTS or not lcf.is_file():
+            continue
+        xml = xml_dir / (lcf.stem + XML_EXT[lcf.suffix.lower()])
+        if lcf in converted or not xml.is_file():
+            os.utime(lcf, None)
+        else:
+            t = xml.stat().st_mtime_ns - 1_000_000_000
+            os.utime(lcf, ns=(t, t))
+            stale += 1
+    return stale
 
 
 # --------------------------------------------------------------------------
@@ -274,11 +309,15 @@ def main() -> int:
 
     if args.xml_only:
         try:
-            files, nbytes, skipped, escaped = convert_lcf_to_xml(
+            files, nbytes, skipped, escaped, converted = convert_lcf_to_xml(
                 game_dir, xml_dir, lcf2xml, args.force_xml, args.maps_limit,
                 args.no_cr_escape, args.dry_run)
         except RuntimeError as exc:
             sys.exit(f"error: {exc}")
+        # Freshly converted XML matches the LCF it came from.
+        if not args.dry_run:
+            for lcf in converted:
+                os.utime(lcf, None)
         print()
         print(f"XML files {len(files)} ({nbytes / 1048576:.1f} MiB), "
               f"{skipped} cached, {escaped} CR-escaped")
@@ -372,22 +411,23 @@ def main() -> int:
     xml_bytes = 0
     xml_skipped = 0
     cr_escaped = 0
+    converted: set[Path] = set()
     if not args.no_xml:
         try:
-            xml_files, xml_bytes, xml_skipped, cr_escaped = convert_lcf_to_xml(
+            xml_files, xml_bytes, xml_skipped, cr_escaped, converted = convert_lcf_to_xml(
                 game_dir, xml_dir, lcf2xml, args.force_xml, args.maps_limit,
                 args.no_cr_escape, args.dry_run)
         except RuntimeError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
 
-    # ---- mark LCF copies fresh -------------------------------------------
-    # `make data` rebuilds only XML edited after this extraction, so
-    # untouched maps keep their exact original binary bytes.
+    # ---- LCF timestamps --------------------------------------------------
     if not args.dry_run:
-        for _s, d, _c, _l in plan + patch_plan:
-            if d.suffix.lower() in LCF_EXTS and d.is_file():
-                os.utime(d, None)
+        stale = sync_lcf_mtimes(sorted({d for _s, d, _c, _l in plan + patch_plan}),
+                                xml_dir, converted)
+        if stale:
+            print(f"cached XML     : {stale} LCF file(s) marked for rebuild "
+                  "(run `make data`)")
 
     # ---- manifest --------------------------------------------------------
     def hash_wanted(suffix: str) -> bool:
