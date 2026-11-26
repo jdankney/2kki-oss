@@ -20,7 +20,14 @@ The glossary (``translation/glossary.json``) seeds translations:
    "terms":   {"gold": "Dreams", ...},        # keyed by Terms field
    "strings": {"はい": "Yes", ...}}           # keyed by source text
 
-Run ``make translate`` then ``make run-en``.
+An existing translation in the same EasyRPG format can be imported with
+``--import DIR`` (e.g. YNOproject's community translation, fetched with
+``make fetch-yno``). Its entries are matched by context + msgid; by default
+they win over the glossary, which fills the gaps (``--prefer local`` flips
+that). Translated images in DIR (``Picture/`` etc.) are copied alongside.
+
+Run ``make translate`` then ``make run-en``. A coverage report is written
+to ``build/translation-report.md``.
 """
 
 from __future__ import annotations
@@ -67,10 +74,31 @@ def po_escape(s: str) -> str:
     return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
 
 
-def write_po(path: Path, entries: list[tuple[str, str]], glossary: "Glossary",
-             terms: bool = False, lang: str = "en") -> tuple[int, int]:
+# Kana, kanji and half-width katakana: text a player would need translated.
+_JAPANESE = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uff66-\uff9f]")
+
+
+def needs_translation(text: str) -> bool:
+    return bool(_JAPANESE.search(text))
+
+
+# Names RPG Maker 2000 only shows in the editor: the map tree and the
+# chipset/animation/terrain databases. They are still written (harmless),
+# but not counted as text a player needs translated. YNO's community
+# translation does not translate any of them either.
+EDITOR_ONLY_FILES = {"rpg_rt.lmt.po"}
+EDITOR_ONLY_CTX = {"chipsets.name", "animations.name", "terrains.name"}
+
+
+def is_editor_only(po_name: str, ctx: str) -> bool:
+    return po_name.lower() in EDITOR_ONLY_FILES or norm_ctx(ctx) in EDITOR_ONLY_CTX
+
+
+def write_po(path: Path, entries: list[tuple[str, str]], translator: "Translator",
+             lang: str = "en") -> dict:
+    """Write one catalogue; return its counts (see ``empty_counts``)."""
     seen: set[tuple[str, str]] = set()
-    total = translated = 0
+    counts = empty_counts()
     lines = [
         'msgid ""',
         'msgstr ""',
@@ -84,13 +112,28 @@ def write_po(path: Path, entries: list[tuple[str, str]], glossary: "Glossary",
         if key in seen:
             continue
         seen.add(key)
-        total += 1
-        if terms and ctx.startswith("terms."):
-            msgstr = glossary.term(ctx.split(".", 1)[1])
-        else:
-            msgstr = glossary.string(msgid)
+        # Player's PO reader treats a bare CR as a line break and has no
+        # escape for it, so such a line would be a fatal parse error.
+        if "\r" in msgid or "\r" in ctx:
+            counts["skipped_cr"] += 1
+            continue
+        msgstr, source = translator.lookup(path.name, ctx, msgid)
+        if "\r" in msgstr:
+            msgstr, source = "", ""
+            counts["skipped_cr"] += 1
+        counts["entries"] += 1
         if msgstr:
-            translated += 1
+            counts["translated"] += 1
+            counts["by_source"][source] = counts["by_source"].get(source, 0) + 1
+        if needs_translation(msgid):
+            if is_editor_only(path.name, ctx):
+                counts["editor_only"] += 1
+            else:
+                counts["japanese"] += 1
+                if msgstr:
+                    counts["japanese_translated"] += 1
+                elif translator.import_left_empty(path.name, ctx, msgid):
+                    counts["empty_in_import"] += 1
         if ctx:
             lines.append(f'msgctxt "{po_escape(ctx)}"')
         lines.append(f'msgid "{po_escape(msgid)}"')
@@ -98,7 +141,22 @@ def write_po(path: Path, entries: list[tuple[str, str]], glossary: "Glossary",
         lines.append("")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines), encoding="utf-8")
-    return total, translated
+    return counts
+
+
+def empty_counts() -> dict:
+    return {"entries": 0, "translated": 0, "japanese": 0,
+            "japanese_translated": 0, "empty_in_import": 0, "editor_only": 0,
+            "skipped_cr": 0, "by_source": {}}
+
+
+def add_counts(total: dict, part: dict) -> None:
+    for k, v in part.items():
+        if k == "by_source":
+            for src, n in v.items():
+                total[k][src] = total[k].get(src, 0) + n
+        else:
+            total[k] += v
 
 
 # ---------------------------------------------------------------------------
@@ -186,15 +244,19 @@ class TranslationMemory:
         # (ctx, msgid) -> file key it first came from
         self.anywhere: dict[tuple[str, str], tuple[str, str, str]] = {}
         self.used: set[tuple[str, str, str]] = set()
+        self.empty: set[tuple[str, str]] = set()   # present but untranslated
         self.files = 0
 
     def add_file(self, name: str, entries: list[tuple[str, str, str]]) -> None:
         self.files += 1
         fname = name.lower()
         for ctx, msgid, msgstr in entries:
-            if not msgid or not msgstr:
+            if not msgid:
                 continue
             key = (norm_ctx(ctx), msgid)
+            if not msgstr:
+                self.empty.add(key)
+                continue
             self.by_file[(fname, *key)] = msgstr
             self.anywhere.setdefault(key, (fname, *key))
 
@@ -213,6 +275,11 @@ class TranslationMemory:
             self.used.add(origin)
             return self.by_file[origin], "import-moved"
         return "", ""
+
+    def left_empty(self, ctx: str, msgid: str) -> bool:
+        """The imported set has this text but did not translate it."""
+        key = (norm_ctx(ctx), msgid)
+        return key in self.empty and key not in self.anywhere
 
     def unused(self) -> int:
         """Imported translations this game version never asked for.
@@ -242,6 +309,16 @@ class Glossary:
     def term(self, field: str) -> str:
         return self._terms.get(field, "")
 
+    def lookup(self, ctx: str, msgid: str) -> tuple[str, str]:
+        """(translation, source) from our own glossary/overrides."""
+        if ctx.startswith("terms."):
+            t = self.term(ctx.split(".", 1)[1])
+            return (t, "glossary") if t else ("", "")
+        if msgid in self._messages:
+            return self._messages[msgid], "override"
+        t = self.string(msgid)
+        return (t, "glossary") if t else ("", "")
+
     def string(self, msgid: str) -> str:
         # Exact whole-message override wins (used for control-code menus).
         if msgid in self._messages:
@@ -261,6 +338,32 @@ class Glossary:
                 out.append(self._strings.get(k, line))
             return "\n".join(out)
         return ""
+
+
+class Translator:
+    """Combine imported translations with our glossary/overrides.
+
+    ``prefer="import"`` (default): an imported translation wins and ours
+    fill the gaps, so the result reads like the imported set throughout
+    (names, terminology). ``prefer="local"`` lets our curated entries win.
+    """
+
+    def __init__(self, glossary: Glossary, memory: TranslationMemory | None = None,
+                 prefer: str = "import"):
+        self.glossary = glossary
+        self.memory = memory
+        self.prefer = prefer
+
+    def lookup(self, po_name: str, ctx: str, msgid: str) -> tuple[str, str]:
+        local = self.glossary.lookup(ctx, msgid)
+        if self.memory is None:
+            return local
+        imported = self.memory.lookup(po_name, ctx, msgid)
+        first, second = (imported, local) if self.prefer == "import" else (local, imported)
+        return first if first[0] else second
+
+    def import_left_empty(self, po_name: str, ctx: str, msgid: str) -> bool:
+        return self.memory is not None and self.memory.left_empty(ctx, msgid)
 
 
 # ---------------------------------------------------------------------------
@@ -374,6 +477,97 @@ def message_units(cmds) -> list[tuple[str, str]]:
 
 
 # ---------------------------------------------------------------------------
+# imports: metadata, assets, report
+# ---------------------------------------------------------------------------
+def read_meta(path: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if path.is_file():
+        for line in path.read_text(encoding="utf-8-sig").splitlines():
+            key, sep, value = line.partition("=")
+            if sep:
+                out[key.strip()] = value.strip()
+    return out
+
+
+def copy_translated_assets(imports: list[Path], out: Path) -> int:
+    """Copy translated images (Picture/, Title/, ...) next to the catalogues.
+
+    Player looks for an asset in the active language directory before the
+    game directory (FileFinder find_generic), so these replace the
+    Japanese images in-game. Earlier import dirs win.
+    """
+    subdirs = {p.name for d in imports for p in d.iterdir() if p.is_dir()}
+    for name in subdirs:                 # drop stale copies from older runs
+        shutil.rmtree(out / name, ignore_errors=True)
+    copied = 0
+    for d in reversed(imports):          # later first, so earlier overwrite
+        for src in sorted(p for p in d.rglob("*") if p.is_file()):
+            rel = src.relative_to(d)
+            if len(rel.parts) < 2:       # top-level files are catalogues/meta
+                continue
+            dst = out / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, dst)
+            copied += 1
+    return copied
+
+
+def pct(part: int, whole: int) -> float:
+    return 100.0 * part / whole if whole else 100.0
+
+
+def short(c: dict) -> str:
+    return (f"{c['entries']} entries, {c['japanese_translated']}/{c['japanese']} "
+            "Japanese lines translated")
+
+
+def write_report(path: Path, stats: dict) -> None:
+    """Human summary: coverage, sources, and where the gaps are."""
+    t = stats["totals"]
+    lines = [
+        "# Translation report",
+        "",
+        f"Generated: {stats['generated']}, language `{stats['lang']}`, "
+        f"prefer `{stats['prefer']}`",
+        "",
+        f"- imports: {', '.join(f'`{d}`' for d in stats['imports']) or '_none_'}",
+        f"- entries: **{t['entries']}**; player-facing entries containing "
+        f"Japanese: **{t['japanese']}**",
+        f"- of those translated: **{t['japanese_translated']}** "
+        f"(**{pct(t['japanese_translated'], t['japanese']):.1f}%**)",
+        f"- untranslated, and also left untranslated by the imported set: "
+        f"**{t['empty_in_import']}**",
+        f"- untranslated, not in the imported set at all: "
+        f"**{t['japanese'] - t['japanese_translated'] - t['empty_in_import']}**",
+        f"- editor-only names not counted (map tree, chipsets, animations, "
+        f"terrains): {t['editor_only']}",
+        f"- by source: {', '.join(f'{k} {v}' for k, v in sorted(t['by_source'].items())) or '_none_'}",
+        f"- imported translations unused (not in this game version): "
+        f"**{stats['imported_unused']}**",
+        f"- skipped (raw CR, unparseable by Player): {t['skipped_cr']}",
+        "",
+        "## Biggest gaps",
+        "",
+        "Catalogues with the most untranslated Japanese entries.",
+        "",
+        "| file | untranslated | Japanese | coverage |",
+        "|---|---:|---:|---:|",
+    ]
+    gaps = sorted(((n, c) for n, c in stats["files"].items()
+                   if c["japanese"] > c["japanese_translated"]),
+                  key=lambda nc: -(nc[1]["japanese"] - nc[1]["japanese_translated"]))
+    for name, c in gaps[:40]:
+        lines.append(f"| `{name}` | {c['japanese'] - c['japanese_translated']} "
+                     f"| {c['japanese']} | {pct(c['japanese_translated'], c['japanese']):.0f}% |")
+    if len(gaps) > 40:
+        lines.append(f"| … {len(gaps) - 40} more | | | |")
+    if not gaps:
+        lines.append("| _none_ | | | |")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 def main() -> int:
@@ -387,6 +581,15 @@ def main() -> int:
     ap.add_argument("--maps-limit", type=int, default=0)
     ap.add_argument("--no-maps", action="store_true")
     ap.add_argument("--stats", default="build/translation-stats.json")
+    ap.add_argument("--report", default="build/translation-report.md")
+    ap.add_argument("--import", dest="imports", action="append", default=[],
+                    metavar="DIR",
+                    help="existing EasyRPG translation (a dir of .po files, e.g. "
+                         "external/ynotranslations/2kki/en) to reuse; repeatable, "
+                         "earlier dirs win")
+    ap.add_argument("--prefer", choices=["import", "local"], default="import",
+                    help="which wins when both an imported and a local "
+                         "(glossary/overrides) translation exist")
     args = ap.parse_args()
 
     xml = Path(args.xml)
@@ -398,34 +601,56 @@ def main() -> int:
         sys.exit(f"error: XML dir not found: {xml}")
     out.mkdir(parents=True, exist_ok=True)
 
+    imports = [Path(d) for d in args.imports]
+    memory = None
+    if imports:
+        memory = TranslationMemory()
+        for d in imports:
+            if not d.is_dir():
+                sys.exit(f"error: import dir not found: {d}")
+            memory.load_dir(d)
+        print(f"  import  {memory.files} catalogue(s), "
+              f"{len(memory.by_file)} translations from {', '.join(map(str, imports))}")
+    translator = Translator(glossary, memory, prefer=args.prefer)
+
     meta = glossary.meta
     lang_code = meta.get("code", args.lang)
+    description = meta.get("description", "")
+    for d in imports:
+        # Keep the imported set's credit line (e.g. "Localization by ...").
+        imported_desc = read_meta(d / "meta.ini").get("Description", "")
+        if imported_desc:
+            description = imported_desc
+            break
     (out / "meta.ini").write_text(
         "[Language]\n"
         f"Name={meta.get('name', 'English')}\n"
-        f"Description={meta.get('description', '')}\n"
+        f"Description={description}\n"
         f"Code={lang_code}\n"
         f"Term={meta.get('term', 'Language')}\n"
         f"GameTitle={meta.get('game_title', 'Yume 2kki')}\n",
         encoding="utf-8",
     )
+    copied = copy_translated_assets(imports, out)
+    if copied:
+        print(f"  assets  {copied} translated image(s)")
 
-    totals = {"files": 0, "entries": 0, "translated": 0}
-    per_file: dict[str, dict[str, int]] = {}
+    totals = empty_counts()
+    totals["files"] = 0
+    per_file: dict[str, dict] = {}
 
-    def emit(name: str, entries, terms=False):
-        n, t = write_po(out / name, entries, glossary, terms=terms, lang=lang_code)
+    def emit(name: str, entries):
+        counts = write_po(out / name, entries, translator, lang=lang_code)
         totals["files"] += 1
-        totals["entries"] += n
-        totals["translated"] += t
-        per_file[name] = {"entries": n, "translated": t}
+        add_counts(totals, counts)
+        per_file[name] = counts
 
     # ---- database --------------------------------------------------------
     db = ET.parse(xml / "RPG_RT.edb").getroot().find("Database")
     if db is None:
         sys.exit("error: no <Database> in RPG_RT.edb")
-    emit("rpg_rt.ldb.po", db_entries(db), terms=True)
-    print(f"  db      {per_file['rpg_rt.ldb.po']}")
+    emit("rpg_rt.ldb.po", db_entries(db))
+    print(f"  db      {short(per_file['rpg_rt.ldb.po'])}")
 
     ce = db.find("commonevents")
     if ce is not None:
@@ -433,7 +658,7 @@ def main() -> int:
         for ev in ce:
             entries += message_units(commands_of(ev))
         emit("rpg_rt.ldb.common.po", entries)
-        print(f"  common  {per_file['rpg_rt.ldb.common.po']}")
+        print(f"  common  {short(per_file['rpg_rt.ldb.common.po'])}")
 
     troops = db.find("troops")
     if troops is not None:
@@ -442,7 +667,7 @@ def main() -> int:
             for page in troop.findall("pages/TroopPage"):
                 entries += message_units(commands_of(page))
         emit("rpg_rt.ldb.battle.po", entries)
-        print(f"  battle  {per_file['rpg_rt.ldb.battle.po']}")
+        print(f"  battle  {short(per_file['rpg_rt.ldb.battle.po'])}")
 
     # ---- map names -------------------------------------------------------
     lmt = ET.parse(xml / "RPG_RT.emt").getroot()
@@ -452,7 +677,7 @@ def main() -> int:
         if name:
             entries.append(("", name))
     emit("rpg_rt.lmt.po", entries)
-    print(f"  lmt     {per_file['rpg_rt.lmt.po']}")
+    print(f"  lmt     {short(per_file['rpg_rt.lmt.po'])}")
 
     # ---- map messages ----------------------------------------------------
     if not args.no_maps:
@@ -469,21 +694,36 @@ def main() -> int:
                 print(f"  maps    {i}/{len(maps)} ({time.time() - t0:.1f}s)")
         print(f"  maps    {len(maps)} files")
 
+    unused = memory.unused() if memory else 0
     stats = {
         "generated": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "lang": args.lang,
+        "imports": [str(d) for d in imports],
+        "prefer": args.prefer,
+        "imported_unused": unused,
         "totals": totals,
         "files": per_file,
     }
     Path(args.stats).parent.mkdir(parents=True, exist_ok=True)
     Path(args.stats).write_text(json.dumps(stats, ensure_ascii=False, indent=1))
+    write_report(Path(args.report), stats)
 
-    pct = (100.0 * totals["translated"] / totals["entries"]) if totals["entries"] else 0
     print()
-    print(f"entries    {totals['entries']}")
-    print(f"translated {totals['translated']} ({pct:.2f}%)")
+    print(f"entries    {totals['entries']} ({totals['japanese']} player-facing with "
+          f"Japanese, {totals['editor_only']} editor-only names not counted)")
+    print(f"translated {totals['japanese_translated']}/{totals['japanese']} "
+          f"player-facing Japanese entries "
+          f"({pct(totals['japanese_translated'], totals['japanese']):.1f}%)")
+    if memory:
+        print(f"           {totals['empty_in_import']} more are left untranslated "
+              "by the imported set too")
+    print(f"sources    {totals['by_source']}")
+    if memory:
+        print(f"imported   {unused} translation(s) unused (text not in this game version)")
+    if totals["skipped_cr"]:
+        print(f"skipped    {totals['skipped_cr']} entr(y/ies) with a raw CR (Player cannot parse)")
     print(f"files      {totals['files']} in {out}")
-    print(f"stats      {args.stats}")
+    print(f"report     {args.report}")
     print(f"done in {time.time() - t0:.1f}s")
     return 0
 
