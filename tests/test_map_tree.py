@@ -44,3 +44,14 @@ def test_prune_reparents_and_materialises_music(tmp_path):
     assert maps[3].findtext("indentation") == "2"
     assert maps[3].findtext("music_type") == "2"
     assert maps[3].findtext("music/Music/name") == "song"
+
+
+def test_second_prune_keeps_the_original_backup(tmp_path):
+    emt = make_tree(tmp_path / "xml" / "RPG_RT.emt", [
+        mapinfo(0, 0, mtype=0), mapinfo(1, 0), mapinfo(2, 1)])
+    original = emt.read_bytes()
+    write(tmp_path / "game" / "Map0001.lmu", b"x")
+    for _ in range(2):
+        run_script("map_tree", "--lmt", emt, "--game", "game", "--apply",
+                   "--backup", "build/bak.emt", cwd=tmp_path)
+    assert (tmp_path / "build" / "bak.emt").read_bytes() == original

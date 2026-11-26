@@ -276,10 +276,16 @@ def main() -> int:
     # ---- output ----------------------------------------------------------
     if not args.dry_run:
         if args.apply:
-            Path(args.backup).parent.mkdir(parents=True, exist_ok=True)
-            Path(args.backup).write_bytes(lmt.read_bytes())
+            backup = Path(args.backup)
+            # Keep the first backup: a second --apply would otherwise
+            # replace the unpruned tree with an already-pruned one.
+            if backup.exists():
+                print(f"backup   {backup} exists, not overwritten")
+            else:
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                backup.write_bytes(lmt.read_bytes())
             tree.tree.write(lmt, encoding="utf-8", xml_declaration=True)
-            print(f"applied  {lmt} (backup: {args.backup})")
+            print(f"applied  {lmt} (backup: {backup})")
         else:
             Path(args.out).parent.mkdir(parents=True, exist_ok=True)
             tree.tree.write(args.out, encoding="utf-8", xml_declaration=True)
