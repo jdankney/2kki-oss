@@ -50,3 +50,10 @@ def test_committed_glossary_and_overrides_parse():
     gl = translate.Glossary(REPO / "translation" / "glossary.json",
                             REPO / "translation" / "overrides.json")
     assert gl.term("yes") == "Yes"
+
+
+def test_po_header_uses_the_language_code(tmp_path):
+    gl = translate.Glossary(tmp_path / "none.json")
+    po = tmp_path / "x.po"
+    translate.write_po(po, [("", "はい")], gl, lang="de")
+    assert '"Language: de\\n"' in po.read_text()
