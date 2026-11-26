@@ -33,6 +33,8 @@ scripts/content.py         baseline/export/apply original XML content
 translation/glossary.json  curated English glossary (terms + phrases)
 translation/overrides.json curated whole-message translations
 content/                   committed diffs + new files for our own content
+tests/                     pytest suite (synthetic game data, no copyrighted files)
+notes/audit.md             initial content audit (counts, structure)
 notes/encoding.md          CP932/CP866 filename mojibake evidence
 notes/roundtrip.md         XML round-trip fidelity notes
 notes/assets.md            asset audit findings
@@ -44,11 +46,15 @@ xml/                       extracted XML, Map*.emu / RPG_RT.edb / RPG_RT.emt
 
 ## Quick start
 
-Requirements: CMake ≥ 3.22, Ninja, a C++17 compiler, and the EasyRPG Player
-deps (SDL2, pixman, libpng, zlib, fmt, freetype, harfbuzz, ICU, expat, inih).
-On Debian/Ubuntu the packaged dev packages are enough.
+Requirements: Python ≥ 3.10, GNU `patch`, CMake ≥ 3.22, Ninja, a C++17
+compiler, and the EasyRPG Player deps (SDL2, pixman, libpng, zlib, fmt,
+freetype, harfbuzz, ICU, expat, inih). On Debian/Ubuntu the packaged dev
+packages are enough.
 
 ```sh
+git clone --recursive <this repo>   # or: make submodules (done automatically)
+# put your own copy of the game under original/ (see Layout)
+
 make extract     # build lcf2xml, repair names, extract build/game + xml/
 make verify      # sanity checks
 make audit       # resolve every asset reference (missing / RTP / unused)
@@ -70,6 +76,20 @@ $EDITOR xml/Map0001.emu
 make data        # xml -> build/game/*.lmu (only edited files)
 make run
 ```
+
+Running `make extract` again keeps your `xml/` but restores the original LCF
+files in `build/game`; it marks them stale, so follow it with `make data`
+(a one-time full rebuild, about a minute).
+
+## Tests
+
+```sh
+make test        # python3 -m pytest
+```
+
+The tests build a tiny synthetic game and use a stub `lcf2xml`, so they need
+no game data and no native build. They run on every push via GitHub Actions
+(`.github/workflows/test.yml`).
 
 ## Authoring original content
 
@@ -106,7 +126,13 @@ Details and evidence: [`notes/encoding.md`](notes/encoding.md).
 ## Warnings
 
 - `original/` is **read-only**. Never write to it. `build/game` gets copies of
-  LCF files (not hardlinks) precisely so a rebuild cannot corrupt the source.
+  the LCF files and `RPG_RT.ini` (not hardlinks) precisely so a rebuild cannot
+  corrupt the source.
+- Every *other* file in `build/game` (images, music, sounds) **is a hardlink**
+  into `original/` to save ~7 GiB. Do not edit those in place: most editors
+  write through the link and change `original/`. Put new or changed assets
+  under `content/assets/` instead, or extract with
+  `python3 scripts/extract.py --copy` to get real copies.
 - EasyRPG Player auto-detects the engine as RPG Maker 2000. Pass
   `--encoding 932` manually if you run a game dir that lacks the patched ini.
 - The game expects the **RPG Maker 2000 RTP** (19k references, 259 unique
@@ -121,7 +147,9 @@ Details and evidence: [`notes/encoding.md`](notes/encoding.md).
 
 This repository contains **tooling**, not game content:
 
-- EasyRPG Player: GPLv3. liblcf: MIT. Both are vendored as submodules.
+- The scripts, docs and tests in this repository: MIT (see `LICENSE`).
+- EasyRPG Player: GPLv3. liblcf: MIT. Both are vendored as submodules and
+  keep their own licences.
 - Yume 2kki assets, maps and events are © their respective creators.
   `read_me.txt` and `document/copyright.txt` explicitly prohibit
   redistribution and secondary use without permission.
