@@ -6,6 +6,8 @@
 #   make run       run the game from build/game
 #   make verify    sanity-check the extracted tree
 #   make audit     resolve every asset reference, report missing/unused
+#   make map-tree  analyse/prune the map tree (report only)
+#   make prune-tree apply the pruned map tree and rebuild RPG_RT.lmt
 #   make clean     remove build/ and xml/
 #
 # Everything is derived from original/ which is read-only and never modified.
@@ -25,12 +27,12 @@ LIBLCF_CONFIG  ?= $(PREFIX)/lib/cmake/liblcf/liblcf-config.cmake
 
 CMAKE_FLAGS := -G Ninja -DCMAKE_BUILD_TYPE=Release
 
-.PHONY: all extract xml data player run verify audit clean distclean help
+.PHONY: all extract xml data player run verify audit map-tree prune-tree clean distclean help
 
 all: extract
 
 help:
-	@sed -n '1,10p' Makefile | sed 's/^# \{0,1\}//'
+	@sed -n '1,11p' Makefile | sed 's/^# \{0,1\}//'
 
 # ---------------------------------------------------------------- liblcf ---
 $(LCF2XML):
@@ -82,6 +84,14 @@ verify: extract
 # ---------------------------------------------------------------- audit ---
 audit: extract
 	$(PYTHON) scripts/audit.py --game $(GAME) --xml $(XML)
+
+# ------------------------------------------------------------- map tree ---
+map-tree: extract
+	$(PYTHON) scripts/map_tree.py --lmt $(XML)/RPG_RT.emt --game $(GAME)
+
+prune-tree: $(LCF2XML)
+	$(PYTHON) scripts/map_tree.py --lmt $(XML)/RPG_RT.emt --game $(GAME) --apply
+	$(PYTHON) scripts/rebuild.py --xml $(XML) --game $(GAME) --lcf2xml $(LCF2XML)
 
 # ----------------------------------------------------------------- clean ---
 clean:

@@ -9,7 +9,8 @@ runnable game directory.
 
 > **Status:** extraction pipeline + Player build verified. All 3932 LCF files
 > convert to XML and back **byte-identically**. The game boots in EasyRPG Player
-> 0.8.1 from `build/game/`.
+> 0.8.1 from `build/game/`. The asset audit is complete and the map tree is
+> pruned from 4601 to 3931 nodes with no behavioural change.
 
 ## Layout
 
@@ -22,8 +23,12 @@ vendor/Player/             EasyRPG Player (submodule)
 scripts/extract.py         original/ -> build/game + xml/ (+ manifest, report)
 scripts/rebuild.py         xml/ -> build/game LCF (only edited files)
 scripts/verify.py          sanity checks
+scripts/audit.py           asset reference audit (missing / RTP / unused)
+scripts/map_tree.py        analyse / prune the RPG_RT.lmt map tree
 notes/encoding.md          CP932/CP866 filename mojibake evidence
 notes/roundtrip.md         XML round-trip fidelity notes
+notes/assets.md            asset audit findings
+notes/map-tree.md          map tree cleanup findings
 build/                     generated (gitignored)
 xml/                       extracted XML, Map*.emu / RPG_RT.edb / RPG_RT.emt
 ```
@@ -38,6 +43,8 @@ On Debian/Ubuntu the packaged dev packages are enough.
 make extract     # build lcf2xml, repair names, extract build/game + xml/
 make verify      # sanity checks
 make audit       # resolve every asset reference (missing / RTP / unused)
+make map-tree    # analyse the map tree, write build/pruned/RPG_RT.emt
+make prune-tree  # apply the pruned tree + rebuild RPG_RT.lmt
 make player      # build EasyRPG Player -> build/player/easyrpg-player
 make run         # play build/game
 ```
@@ -94,16 +101,17 @@ must supply their own copy of the game. If the goal is a *fully redistributable*
 open-source game, the assets and map data have to be replaced with original or
 permissively licensed content — that is a separate, much larger content effort.
 
-## Next steps (suggested)
+## Next steps
 
-1. **Fidelity:** patch liblcf's XML writer to escape `\r` as `&#xD;` (fixes 31
+Done: asset audit (`notes/assets.md`), map-tree prune (`notes/map-tree.md`).
+
+1. **RTP:** install the RPG Maker 2000 RTP (or point `--rtp-path` at one) so
+   default SE, battle animations and backdrops resolve.
+2. **Fidelity:** patch liblcf's XML writer to escape `\r` as `&#xD;` (fixes 31
    of the 37 non-round-trippable maps). See `notes/roundtrip.md`.
-2. **Asset audit:** resolve every `character_name` / `title_name` /
-   picture / music / sound reference against the repaired tree and report
-   missing files (the game has years of dead references).
-3. **Map index:** build a graph of teleports, connections and event common
-   calls so the map tree is navigable in text.
-4. **Translation:** EasyRPG Player has a `language/<lang>/` translation system;
-   extracting strings to a PO/JSON catalogue is the natural next big feature.
+3. **Translation:** extract every player-visible string to EasyRPG Player's
+   `language/<lang>/` catalogue and build an English pass.
+4. **Map index:** graph of teleports, connections and common-event calls so the
+   map tree is navigable in text.
 5. **Original content:** track new/edited maps as XML diffs against the base,
    so the project can carry its own content without redistributing the originals.
