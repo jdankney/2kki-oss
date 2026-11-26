@@ -245,7 +245,9 @@ def cmd_apply(args) -> int:
     for e in manifest.get("modified", []):
         if e.get("kind") == "full":
             (xml / e["path"]).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(content / e["file"], xml / e["path"])
+            # copyfile, not copy2: the copy must get a fresh mtime or
+            # `make data` treats the older checked-out file as up to date.
+            shutil.copyfile(content / e["file"], xml / e["path"])
             print(f"  copy {e['path']}")
             continue
         patch = content / e["patch"]
@@ -260,7 +262,7 @@ def cmd_apply(args) -> int:
             print(f"  patch {e['path']}")
     for e in manifest.get("added", []):
         (xml / e["path"]).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(content / e["file"], xml / e["path"])
+        shutil.copyfile(content / e["file"], xml / e["path"])
         print(f"  add  {e['path']}")
     for rel in manifest.get("deleted", []):
         p = xml / rel
