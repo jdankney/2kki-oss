@@ -1,0 +1,21 @@
+diff --git a/src/writer_xml.cpp b/src/writer_xml.cpp
+index 6e8f7ed..1c3238f 100644
+--- a/src/writer_xml.cpp
++++ b/src/writer_xml.cpp
+@@ -86,10 +86,15 @@ void XmlWriter::WriteString(std::string_view val) {
+ 			case '\n':
+ 				stream.put(c);
+ 				break;
+-			case '\r':
+ 			case '\t':
+ 				stream.put(c);
+ 				break;
++			case '\r':
++				// A literal CR in XML content is normalised to LF by the
++				// parser. Emit a character reference so CR survives a
++				// binary LCF -> XML -> LCF round-trip.
++				stream << "&#xD;";
++				break;
+ 			default:
+ 				if (c >= 0 && c < 32) {
+ 					char temp[10];

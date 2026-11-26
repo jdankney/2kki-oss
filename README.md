@@ -9,10 +9,11 @@ runnable game directory.
 
 > **Status:** extraction pipeline + Player build verified. All 3932 LCF files
 > convert to XML and back **byte-identically**. The game boots in EasyRPG Player
-> 0.8.1 from `build/game/`. Asset audit and map-tree prune are complete. An
-> English translation pipeline exists and the whole UI/real-room PC menu is
-> translated; the dream-world text is a work in progress (~0.3% of 35k
-> catalogue entries so far).
+> 0.8.1 from `build/game/`. Asset audit and map-tree prune are complete. The
+> CR round-trip fix makes 3921/3930 maps byte-exact (the rest differ only in
+> unused metadata). An English translation pipeline exists and the whole
+> UI/real-room PC menu is translated; the dream-world text is a work in
+> progress (~0.3% of 35k catalogue entries so far).
 
 ## Layout
 
@@ -112,15 +113,14 @@ permissively licensed content — that is a separate, much larger content effort
 ## Next steps
 
 Done: asset audit (`notes/assets.md`), map-tree prune (`notes/map-tree.md`),
-translation pipeline (`notes/translation.md`).
+translation pipeline (`notes/translation.md`), CR round-trip fix
+(`notes/roundtrip.md`).
 
 1. **RTP:** install the RPG Maker 2000 RTP (or point `--rtp-path` at one) so
    default SE, battle animations and backdrops resolve.
-2. **Fidelity:** patch liblcf's XML writer to escape `\r` as `&#xD;` (fixes 31
-   of the 37 non-round-trippable maps). See `notes/roundtrip.md`.
-3. **Finish the English pass:** map-by-map, starting with the PC menu and the
+2. **Finish the English pass:** map-by-map, starting with the PC menu and the
    first dream maps. ~4k unique lines remain.
-4. **Map index:** graph of teleports, connections and common-event calls so the
+3. **Map index:** graph of teleports, connections and common-event calls so the
    map tree is navigable in text.
-5. **Original content:** track new/edited maps as XML diffs against the base,
+4. **Original content:** track new/edited maps as XML diffs against the base,
    so the project can carry its own content without redistributing the originals.

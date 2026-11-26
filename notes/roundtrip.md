@@ -13,49 +13,62 @@ $ lcf2xml --2k --encoding CP932 Map0001.emu      # -> Map0001.lmu
 $ cmp Map0001.lmu <game>/Map0001.lmu             # identical
 ```
 
-Verified for `Map0001` (LMU), `RPG_RT.ldb` (LDB) and `RPG_RT.lmt` (LMT):
-all byte-identical.
+`make extract` keeps the original binary LCF files in `build/game/` (copied,
+never hardlinked) and touches them afterwards, so `make data` only rebuilds
+XML files that were edited. Untouched maps stay byte-exact.
 
-`make extract` deliberately keeps the original binary LCF files in
-`build/game/` (they are copied, never hardlinked) and touches them after
-extraction. `make data` then only rebuilds XML files that were edited
-afterwards. Result: all 3932 LCF files stay byte-exact until you change them.
+## Full rebuild after the CR fix
 
-## Known non-round-trippable fields
+After escaping CR (see below), rebuilding **all 3932 XML files** and comparing
+to `build/game` gives:
 
-A *full* XML -> LCF rebuild of every file changes 37 of 3932 LCF files:
+| result | files |
+|---|---:|
+| byte-identical | **3921 / 3930 maps** |
+| differ | **9 maps** |
+| `RPG_RT.ldb`, `RPG_RT.lmt` | identical |
 
-### 1. Trailing carriage return in strings (31 maps)
+The 9 remaining maps differ only in non-player-visible metadata:
 
-Some event message strings end with a literal `\r` (`0x0D`). liblcf's XML
-writer emits it literally (`writer_xml.cpp:WriteString`, `case '\r'`).
-XML parsers normalise literal CR to LF, so the rebuilt file loses it.
+1. **`save_count_2k3e`** (9 maps: `Map1042, 1604, 1969, 2813, 2818, 2820,
+   2994, 3093, 3219`). This is an RPG Maker 2003 English-only counter. liblcf
+   zeroes it when saving as RPG Maker 2000 (`--2k`). The game is 2k, so the
+   field is unused.
+2. **PUA-mapped C0 control characters in event names** (`Map1604`, `Map1969`).
+   The source LCF has `0x1F` inside an event `<name>`; the XML writer maps C0
+   controls to U+E000..U+E01F, and liblcf's reader only restores part of that
+   round-trip. The affected field is the editor event name, not game text.
 
-Example (`Map2053`):
+Neither is worth a custom patch; the practical workflow below never rebuilds
+an unedited map.
+
+## The CR problem and the fix
+
+Some event message strings end with a literal `\r` (`0x0D`). A literal CR in
+XML content is normalised to LF by every XML parser, so `XML -> LCF` lost it.
+That made 31 maps non-round-trippable.
+
+`scripts/extract.py` now post-processes every generated XML file and replaces
+raw `0x0D` with the character reference `&#xD;`:
 
 ```
-$ diff xml/Map2053.emu <reconverted>.emu
-< <string>[X]マップ地形を編集する^M
-> <string>[X]マップ地形を編集する
+raw  ...する\r</string>
+XML  ...する&#xD;</string>
 ```
 
-Fix (not applied): change `writer_xml.cpp` to emit `&#xD;` for `\r`; the XML
-parser then restores the byte. This is a one-line, spec-correct change but it
-lives in the `vendor/liblcf` submodule, so it is left as an optional patch.
+The XML parser then restores CR, and the round-trip is byte-exact. This is on
+by default; `--no-cr-escape` disables it.
 
-### 2. `save_count_2k3e` reset (6 maps)
+There is also an upstream fix for liblcf (the writer should emit `&#xD;`
+itself):
 
-`save_count_2k3e` is an RPG Maker 2003 English-only counter. It is written for
-2k3e but zeroed when saving as RPG Maker 2000 (`--2k`). It is unused by this
-game.
+```sh
+make patch-liblcf      # applies patches/liblcf-escape-cr.patch, rebuilds lcf2xml
+```
 
-Maps: `Map2053, Map2059, Map2052, Map2056, Map2058, Map2060, Map2236, Map2284,
-Map2820, Map2981, Map2983, Map2994, Map3093, Map3151, Map3154, Map3155,
-Map3158, Map3159, Map3219, Map3421, Map3944, Map3945, Map4082, Map4083,
-Map4085, Map4086, Map4088, Map4089, Map1042, Map1604, Map1969, Map2051,
-Map2054, Map2055, Map2057, Map2813, Map2818` (the union of both classes).
-
-Again: only matters if you rebuild those specific files from edited XML.
+The patch modifies the `vendor/liblcf` submodule working tree, so the
+superproject shows it as dirty. It is optional: the extractor's
+post-processing already makes the pipeline correct without it.
 
 ## Practical rule
 
@@ -63,6 +76,5 @@ Again: only matters if you rebuild those specific files from edited XML.
 - edit `xml/*.emu`.
 - `make data` — rebuild only the edited maps into `build/game`.
 - `make run` — play.
-- do **not** re-run `make extract` after editing XML (it would replace the
-  rebuilt LCF with the originals; the XML edits are safe because `xml/` is
-  cached, but `make data` would then see fresh LCF and skip).
+- `make xml` — refresh XML from `build/game` without touching the game tree
+  (`--xml-only`), useful after re-applying the map-tree prune.

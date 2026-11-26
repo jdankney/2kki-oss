@@ -139,6 +139,20 @@ def iter_files(root: Path):
             yield Path(dirpath) / name
 
 
+def escape_cr_in_xml(path: Path) -> bool:
+    """Replace raw CR bytes with the XML character reference ``&#xD;``.
+
+    A literal CR in XML content is normalised to LF by every parser, which
+    loses it on the way back to LCF. ``&#xD;`` survives, so the round-trip is
+    byte-exact. See notes/roundtrip.md.
+    """
+    data = path.read_bytes()
+    if b"\r" not in data:
+        return False
+    path.write_bytes(data.replace(b"\r", b"&#xD;"))
+    return True
+
+
 def write_ini(src_ini: Path, dst_ini: Path, dry: bool) -> None:
     raw = src_ini.read_bytes()
     text = raw.decode(TARGET_ENC, errors="replace")
@@ -149,6 +163,63 @@ def write_ini(src_ini: Path, dst_ini: Path, dry: bool) -> None:
     if not dry:
         dst_ini.parent.mkdir(parents=True, exist_ok=True)
         dst_ini.write_bytes(text.encode(TARGET_ENC))
+
+
+def convert_lcf_to_xml(game_dir: Path, xml_dir: Path, lcf2xml: Path,
+                       force_xml: bool, maps_limit: int, no_cr_escape: bool,
+                       dry_run: bool) -> tuple[list[Path], int, int, int]:
+    """Convert every LCF file in game_dir to XML in xml_dir."""
+    xml_files: list[Path] = []
+    xml_bytes = 0
+    xml_skipped = 0
+    cr_escaped = 0
+    if not lcf2xml.is_file():
+        print(f"warning: lcf2xml not found at {lcf2xml}; skipping XML", file=sys.stderr)
+        return xml_files, xml_bytes, xml_skipped, cr_escaped
+
+    xml_dir.mkdir(parents=True, exist_ok=True)
+    lcf_files = sorted(
+        p for p in game_dir.rglob("*")
+        if p.is_file() and p.suffix.lower() in LCF_EXTS
+    )
+    maps = [p for p in lcf_files if p.suffix.lower() == ".lmu"]
+    if maps_limit and len(maps) > maps_limit:
+        keep = set(maps[:maps_limit])
+        lcf_files = [p for p in lcf_files if p.suffix.lower() != ".lmu" or p in keep]
+
+    todo: list[Path] = []
+    for p in lcf_files:
+        out = xml_dir / (p.stem + XML_EXT[p.suffix.lower()])
+        # XML is derived from the read-only original/; cache on existence,
+        # use --force-xml to refresh.
+        if not force_xml and out.is_file() and out.stat().st_size > 0:
+            xml_skipped += 1
+            continue
+        todo.append(p)
+
+    print(f"LCF files      : {len(lcf_files)} ({len(todo)} to convert, {xml_skipped} cached)")
+    if not no_cr_escape:
+        print("CR escaping    : on (raw CR -> &#xD;)")
+    chunk = 200
+    for i in range(0, len(todo), chunk):
+        batch = todo[i:i + chunk]
+        cmd = [str(lcf2xml), "--2k", "--encoding", TARGET_ENC] + [str(p) for p in batch]
+        if dry_run:
+            print(f"  [dry-run] {' '.join(cmd[:4])} ... ({len(batch)} files)")
+            continue
+        res = subprocess.run(cmd, cwd=str(xml_dir))
+        if res.returncode != 0:
+            raise RuntimeError(f"lcf2xml failed on batch {i // chunk + 1}")
+        if not no_cr_escape:
+            for p in batch:
+                out = xml_dir / (p.stem + XML_EXT[p.suffix.lower()])
+                if out.is_file() and escape_cr_in_xml(out):
+                    cr_escaped += 1
+        print(f"  converted {min(i + chunk, len(todo))}/{len(todo)}")
+
+    xml_files = sorted(xml_dir.glob("*"))
+    xml_bytes = sum(p.stat().st_size for p in xml_files if p.is_file())
+    return xml_files, xml_bytes, xml_skipped, cr_escaped
 
 
 # --------------------------------------------------------------------------
@@ -165,8 +236,12 @@ def main() -> int:
     ap.add_argument("--lcf2xml", default="build/liblcf/lcf2xml")
     ap.add_argument("--copy", action="store_true", help="copy files instead of hardlinking")
     ap.add_argument("--no-xml", action="store_true", help="skip LCF -> XML conversion")
+    ap.add_argument("--xml-only", action="store_true",
+                    help="only refresh XML from an existing game dir")
     ap.add_argument("--force-xml", action="store_true", help="reconvert XML even if up to date")
     ap.add_argument("--maps-limit", type=int, default=0, help="only convert N maps (0 = all)")
+    ap.add_argument("--no-cr-escape", action="store_true",
+                    help="keep literal CR in XML (not round-trip safe)")
     ap.add_argument("--hash", choices=["none", "lcf", "all"], default="lcf")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--manifest", default="build/manifest.json")
@@ -181,6 +256,18 @@ def main() -> int:
 
     if not src.is_dir():
         sys.exit(f"error: source dir not found: {src}")
+
+    if args.xml_only:
+        try:
+            files, nbytes, skipped, escaped = convert_lcf_to_xml(
+                game_dir, xml_dir, lcf2xml, args.force_xml, args.maps_limit,
+                args.no_cr_escape, args.dry_run)
+        except RuntimeError as exc:
+            sys.exit(f"error: {exc}")
+        print()
+        print(f"XML files {len(files)} ({nbytes / 1048576:.1f} MiB), "
+              f"{skipped} cached, {escaped} CR-escaped")
+        return 0
 
     base, patch_roots = choose_roots(src)
     print(f"base game root : {base}")
@@ -265,46 +352,15 @@ def main() -> int:
     xml_files: list[Path] = []
     xml_bytes = 0
     xml_skipped = 0
+    cr_escaped = 0
     if not args.no_xml:
-        if not lcf2xml.is_file():
-            print(f"warning: lcf2xml not found at {lcf2xml}; skipping XML", file=sys.stderr)
-        else:
-            xml_dir.mkdir(parents=True, exist_ok=True)
-            lcf_files = sorted(
-                p for p in game_dir.rglob("*")
-                if p.is_file() and p.suffix.lower() in LCF_EXTS
-            )
-            maps = [p for p in lcf_files if p.suffix.lower() == ".lmu"]
-            if args.maps_limit and len(maps) > args.maps_limit:
-                keep = set(maps[: args.maps_limit])
-                lcf_files = [p for p in lcf_files if p.suffix.lower() != ".lmu" or p in keep]
-
-            todo: list[Path] = []
-            for p in lcf_files:
-                out = xml_dir / (p.stem + XML_EXT[p.suffix.lower()])
-                # XML is derived from the read-only original/; cache on
-                # existence, use `make xml` (--force-xml) to refresh.
-                if not args.force_xml and out.is_file() and out.stat().st_size > 0:
-                    xml_skipped += 1
-                    continue
-                todo.append(p)
-
-            print(f"LCF files      : {len(lcf_files)} ({len(todo)} to convert, {xml_skipped} cached)")
-            chunk = 200
-            for i in range(0, len(todo), chunk):
-                batch = todo[i:i + chunk]
-                cmd = [str(lcf2xml), "--2k", "--encoding", TARGET_ENC] + [str(p) for p in batch]
-                if args.dry_run:
-                    print(f"  [dry-run] {' '.join(cmd[:4])} ... ({len(batch)} files)")
-                    continue
-                res = subprocess.run(cmd, cwd=str(xml_dir))
-                if res.returncode != 0:
-                    print(f"error: lcf2xml failed on batch {i // chunk + 1}", file=sys.stderr)
-                    return res.returncode
-                print(f"  converted {min(i + chunk, len(todo))}/{len(todo)}")
-
-            xml_files = sorted(xml_dir.glob("*"))
-            xml_bytes = sum(p.stat().st_size for p in xml_files if p.is_file())
+        try:
+            xml_files, xml_bytes, xml_skipped, cr_escaped = convert_lcf_to_xml(
+                game_dir, xml_dir, lcf2xml, args.force_xml, args.maps_limit,
+                args.no_cr_escape, args.dry_run)
+        except RuntimeError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
 
     # ---- mark LCF copies fresh -------------------------------------------
     # `make data` rebuilds only XML edited after this extraction, so
@@ -349,6 +405,7 @@ def main() -> int:
             "repaired_names": repaired_count,
             "xml_files": len(xml_files),
             "xml_bytes": xml_bytes,
+            "cr_escaped": cr_escaped,
         },
         "files": entries,
     }
@@ -383,6 +440,7 @@ def main() -> int:
         f"- xml dir: `{xml_dir.relative_to(Path.cwd()) if xml_dir.is_relative_to(Path.cwd()) else xml_dir}`",
         f"- files placed: {len(entries)}",
         f"- XML files: {len(xml_files)} ({xml_bytes / 1048576:.1f} MiB)",
+        f"- raw CR escaped as &#xD;: {cr_escaped}",
         "",
         "## Repaired name samples",
         "",

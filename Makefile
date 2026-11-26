@@ -10,6 +10,7 @@
 #   make prune-tree apply the pruned map tree and rebuild RPG_RT.lmt
 #   make translate generate translation/<lang>/*.po (EasyRPG Player)
 #   make run-en    run the game with the English translation
+#   make patch-liblcf apply the optional upstream CR fix and rebuild
 #   make clean     remove build/ and xml/
 #
 # Everything is derived from original/ which is read-only and never modified.
@@ -31,12 +32,12 @@ LIBLCF_CONFIG  ?= $(PREFIX)/lib/cmake/liblcf/liblcf-config.cmake
 
 CMAKE_FLAGS := -G Ninja -DCMAKE_BUILD_TYPE=Release
 
-.PHONY: all extract xml data player run run-en verify audit map-tree prune-tree translate clean distclean help
+.PHONY: all extract xml data player run run-en verify audit map-tree prune-tree translate patch-liblcf clean distclean help
 
 all: extract
 
 help:
-	@sed -n '1,13p' Makefile | sed 's/^# \{0,1\}//'
+	@sed -n '1,15p' Makefile | sed 's/^# \{0,1\}//'
 
 # ---------------------------------------------------------------- liblcf ---
 $(LCF2XML):
@@ -59,9 +60,17 @@ extract: $(LCF2XML)
 
 # only refresh XML from an already-extracted game dir
 xml: $(LCF2XML)
-	$(PYTHON) scripts/extract.py \
-		--src original --game $(GAME) --xml $(XML) --lcf2xml $(LCF2XML) \
-		--force-xml
+	$(PYTHON) scripts/extract.py --xml-only \
+		--game $(GAME) --xml $(XML) --lcf2xml $(LCF2XML) --force-xml
+
+# -------------------------------------------------------- liblcf patch ---
+# Optional: fix the upstream XML writer so CR survives without post-processing.
+patch-liblcf:
+	@git -C vendor/liblcf apply --check $(abspath patches/liblcf-escape-cr.patch) 2>/dev/null \
+		&& git -C vendor/liblcf apply $(abspath patches/liblcf-escape-cr.patch) \
+		|| echo "liblcf CR patch already applied (submodule may be dirty)"
+	@rm -f $(LCF2XML)
+	@$(MAKE) --no-print-directory $(LCF2XML)
 
 # ---------------------------------------------------------------- data ---
 data: $(LCF2XML)
