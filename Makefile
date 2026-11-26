@@ -33,7 +33,7 @@ LIBLCF_CONFIG  ?= $(PREFIX)/lib/cmake/liblcf/liblcf-config.cmake
 
 CMAKE_FLAGS := -G Ninja -DCMAKE_BUILD_TYPE=Release
 
-.PHONY: all extract xml data player run run-en verify audit map-tree prune-tree translate patch-liblcf content-baseline content-status content-export content-apply content-check clean distclean help
+.PHONY: all extract xml data player run run-en verify audit map-tree prune-tree translate patch-liblcf content-baseline content-status content-export content-apply content-check ensure-extracted clean distclean help
 
 all: extract
 
@@ -58,6 +58,12 @@ $(LIBLCF_CONFIG): $(LCF2XML)
 extract: $(LCF2XML)
 	$(PYTHON) scripts/extract.py \
 		--src original --game $(GAME) --xml $(XML) --lcf2xml $(LCF2XML)
+
+# Only extract when the derived tree is missing: re-running extract would
+# overwrite the pruned map tree / rebuilt content in build/game.
+ensure-extracted:
+	@test -f $(GAME)/RPG_RT.ldb -a -f $(XML)/RPG_RT.edb \
+		|| $(MAKE) --no-print-directory extract
 
 # only refresh XML from an already-extracted game dir
 xml: $(LCF2XML)
@@ -88,26 +94,26 @@ $(PLAYER): $(LIBLCF_CONFIG)
 
 player: $(PLAYER)
 
-run: extract $(PLAYER)
+run: ensure-extracted $(PLAYER)
 	$(PLAYER) --game $(GAME)
 
 # ----------------------------------------------------------- translation ---
-translate: extract
+translate: ensure-extracted
 	$(PYTHON) scripts/translate.py --xml $(XML) --out $(TRANSLATION) --lang $(TR_LANG)
 
-run-en: extract translate $(PLAYER)
+run-en: ensure-extracted translate $(PLAYER)
 	$(PLAYER) --game $(GAME) --language-path $(TRANSLATION) --language $(TR_LANG)
 
 # ---------------------------------------------------------------- verify ---
-verify: extract
+verify: ensure-extracted
 	$(PYTHON) scripts/verify.py --game $(GAME) --xml $(XML)
 
 # ---------------------------------------------------------------- audit ---
-audit: extract
+audit: ensure-extracted
 	$(PYTHON) scripts/audit.py --game $(GAME) --xml $(XML)
 
 # ------------------------------------------------------------- map tree ---
-map-tree: extract
+map-tree: ensure-extracted
 	$(PYTHON) scripts/map_tree.py --lmt $(XML)/RPG_RT.emt --game $(GAME)
 
 prune-tree: $(LCF2XML)

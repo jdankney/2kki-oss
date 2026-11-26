@@ -27,7 +27,10 @@ make content-status     # should say 0 modified / 0 added / 0 deleted
 
 `content/baseline.json` is what makes `status`/`export` possible. If you run
 `make extract` later, re-run `make prune-tree` so the XML matches the baseline
-(a normal extraction without the prune has the original 4601-node tree).
+(a normal extraction without the prune has the original 4601-node tree), then
+`make data` to put the rebuilt/pruned LCF files back into `build/game`.
+`make run` and `make run-en` no longer re-extract automatically; they only
+extract when `build/game/RPG_RT.ldb` or `xml/RPG_RT.edb` is missing.
 
 ## Authoring loop
 
