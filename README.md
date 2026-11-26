@@ -37,9 +37,13 @@ On Debian/Ubuntu the packaged dev packages are enough.
 ```sh
 make extract     # build lcf2xml, repair names, extract build/game + xml/
 make verify      # sanity checks
+make audit       # resolve every asset reference (missing / RTP / unused)
 make player      # build EasyRPG Player -> build/player/easyrpg-player
 make run         # play build/game
 ```
+
+See `notes/assets.md` for the first audit results (~40 s): 965k references,
+225 genuinely missing names, and 259 unique RTP files the game expects.
 
 Then edit maps/database in `xml/` and rebuild just those:
 
@@ -68,6 +72,10 @@ Details and evidence: [`notes/encoding.md`](notes/encoding.md).
   LCF files (not hardlinks) precisely so a rebuild cannot corrupt the source.
 - EasyRPG Player auto-detects the engine as RPG Maker 2000. Pass
   `--encoding 932` manually if you run a game dir that lacks the patched ini.
+- The game expects the **RPG Maker 2000 RTP** (19k references, 259 unique
+  names: default SE, battle animations/backdrops). Install an RTP or pass
+  `--rtp-path` / set `RPG2K_RTP_PATH`. Without it the game runs, but many
+  sounds and battle backdrops are silent/missing.
 - The 0.129h + patch1 combination is what gets extracted. If you add another
   patch, drop it under `original/` with `patch` in the directory name and
   re-run `make extract`.

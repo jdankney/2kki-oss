@@ -5,6 +5,7 @@
 #   make player    build EasyRPG Player into build/player
 #   make run       run the game from build/game
 #   make verify    sanity-check the extracted tree
+#   make audit     resolve every asset reference, report missing/unused
 #   make clean     remove build/ and xml/
 #
 # Everything is derived from original/ which is read-only and never modified.
@@ -24,12 +25,12 @@ LIBLCF_CONFIG  ?= $(PREFIX)/lib/cmake/liblcf/liblcf-config.cmake
 
 CMAKE_FLAGS := -G Ninja -DCMAKE_BUILD_TYPE=Release
 
-.PHONY: all extract xml data player run verify clean distclean help
+.PHONY: all extract xml data player run verify audit clean distclean help
 
 all: extract
 
 help:
-	@sed -n '1,9p' Makefile | sed 's/^# \{0,1\}//'
+	@sed -n '1,10p' Makefile | sed 's/^# \{0,1\}//'
 
 # ---------------------------------------------------------------- liblcf ---
 $(LCF2XML):
@@ -77,6 +78,10 @@ run: extract $(PLAYER)
 # ---------------------------------------------------------------- verify ---
 verify: extract
 	$(PYTHON) scripts/verify.py --game $(GAME) --xml $(XML)
+
+# ---------------------------------------------------------------- audit ---
+audit: extract
+	$(PYTHON) scripts/audit.py --game $(GAME) --xml $(XML)
 
 # ----------------------------------------------------------------- clean ---
 clean:
