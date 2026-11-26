@@ -126,6 +126,34 @@ def diff_files(old: Path, new: Path, rel: str) -> str:
     return "".join(diff)
 
 
+def apply_patch(xml: Path, patch: Path, dry_run: bool) -> tuple[str, str]:
+    """Apply one exported patch to xml/ without ever prompting.
+
+    Returns ("applied" | "already" | "conflict", patch output). Every check
+    is a dry run first, so a patch that does not apply cleanly leaves xml/
+    untouched (no half-applied hunks, no .rej files). A patch that is
+    already applied (content-apply run twice) is reported, not reverted:
+    plain `patch` would ask "Assume -R?" on the terminal.
+    """
+    base = ["patch", "-p1", "--no-backup-if-mismatch",
+            "-d", str(xml), "-i", str(patch.resolve())]
+
+    def run(*extra: str) -> subprocess.CompletedProcess:
+        return subprocess.run(base + list(extra), stdin=subprocess.DEVNULL,
+                              capture_output=True, text=True)
+
+    fwd = run("--forward", "--dry-run")
+    if fwd.returncode == 0:
+        if not dry_run:
+            res = run("--forward")
+            if res.returncode != 0:
+                return "conflict", res.stdout + res.stderr
+        return "applied", fwd.stdout
+    if run("--reverse", "--force", "--dry-run").returncode == 0:
+        return "already", ""
+    return "conflict", fwd.stdout + fwd.stderr
+
+
 # ---------------------------------------------------------------------------
 # commands
 # ---------------------------------------------------------------------------
@@ -250,14 +278,12 @@ def cmd_apply(args) -> int:
             shutil.copyfile(content / e["file"], xml / e["path"])
             print(f"  copy {e['path']}")
             continue
-        patch = content / e["patch"]
-        cmd = ["patch", "-p1", "--no-backup-if-mismatch", "-d", str(xml)]
-        if args.dry_run:
-            cmd.insert(1, "--dry-run")
-        res = subprocess.run(cmd, stdin=patch.open("rb"))
-        if res.returncode != 0:
-            print(f"  FAIL {e['path']}", file=sys.stderr)
+        status, detail = apply_patch(xml, content / e["patch"], args.dry_run)
+        if status == "conflict":
+            print(f"  FAIL {e['path']}\n{detail}", file=sys.stderr)
             ok = False
+        elif status == "already":
+            print(f"  ok   {e['path']} (already applied)")
         else:
             print(f"  patch {e['path']}")
     for e in manifest.get("added", []):

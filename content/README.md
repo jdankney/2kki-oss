@@ -60,6 +60,10 @@ make data
 make run-en
 ```
 
+`make content-apply` is safe to re-run: patches that are already applied
+are skipped, and a patch that no longer applies cleanly is reported as
+`FAIL` without touching `xml/`.
+
 `make content-check` verifies that every exported patch still applies to its
 regenerated baseline and reproduces the current XML exactly.
 

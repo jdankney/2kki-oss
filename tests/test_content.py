@@ -36,3 +36,28 @@ def test_full_file_entry_reaches_the_game(extracted, lcf2xml):
     game = extracted / "build" / "game"
     assert (game / "Map0001.lmu").read_bytes() == b"converted:OUR MAP"
 
+
+def test_apply_twice_is_a_no_op(tmp_path):
+    write(tmp_path / "xml" / "Map0002.emu", "one\ntwo\nthree\n")
+    entry = make_patch(tmp_path, "Map0002.emu", "one\ntwo\nthree\n", "one\nTWO\nthree\n")
+    make_content(tmp_path, modified=[entry])
+
+    apply(tmp_path)
+    after_first = snapshot(tmp_path / "xml")
+    assert after_first == {"Map0002.emu": b"one\nTWO\nthree\n"}
+
+    res = apply(tmp_path, check=False)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "already applied" in res.stdout
+    assert snapshot(tmp_path / "xml") == after_first     # no .rej, no revert
+
+
+def test_conflicting_patch_fails_without_touching_xml(tmp_path):
+    write(tmp_path / "xml" / "Map0002.emu", "something\nelse\nentirely\n")
+    entry = make_patch(tmp_path, "Map0002.emu", "one\ntwo\nthree\n", "one\nTWO\nthree\n")
+    make_content(tmp_path, modified=[entry])
+    before = snapshot(tmp_path / "xml")
+    res = apply(tmp_path, check=False)
+    assert res.returncode == 1
+    assert "FAIL Map0002.emu" in res.stderr
+    assert snapshot(tmp_path / "xml") == before
