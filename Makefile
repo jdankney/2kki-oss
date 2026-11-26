@@ -8,6 +8,8 @@
 #   make audit     resolve every asset reference, report missing/unused
 #   make map-tree  analyse/prune the map tree (report only)
 #   make prune-tree apply the pruned map tree and rebuild RPG_RT.lmt
+#   make translate generate translation/<lang>/*.po (EasyRPG Player)
+#   make run-en    run the game with the English translation
 #   make clean     remove build/ and xml/
 #
 # Everything is derived from original/ which is read-only and never modified.
@@ -20,6 +22,8 @@ BUILD   ?= build
 GAME    ?= $(BUILD)/game
 XML     ?= xml
 PREFIX  ?= $(BUILD)/prefix
+TRANSLATION ?= translation
+TR_LANG ?= en
 
 LCF2XML        ?= $(BUILD)/liblcf/lcf2xml
 PLAYER         ?= $(BUILD)/player/easyrpg-player
@@ -27,12 +31,12 @@ LIBLCF_CONFIG  ?= $(PREFIX)/lib/cmake/liblcf/liblcf-config.cmake
 
 CMAKE_FLAGS := -G Ninja -DCMAKE_BUILD_TYPE=Release
 
-.PHONY: all extract xml data player run verify audit map-tree prune-tree clean distclean help
+.PHONY: all extract xml data player run run-en verify audit map-tree prune-tree translate clean distclean help
 
 all: extract
 
 help:
-	@sed -n '1,11p' Makefile | sed 's/^# \{0,1\}//'
+	@sed -n '1,13p' Makefile | sed 's/^# \{0,1\}//'
 
 # ---------------------------------------------------------------- liblcf ---
 $(LCF2XML):
@@ -76,6 +80,13 @@ player: $(PLAYER)
 
 run: extract $(PLAYER)
 	$(PLAYER) --game $(GAME)
+
+# ----------------------------------------------------------- translation ---
+translate: extract
+	$(PYTHON) scripts/translate.py --xml $(XML) --out $(TRANSLATION) --lang $(TR_LANG)
+
+run-en: extract translate $(PLAYER)
+	$(PLAYER) --game $(GAME) --language-path $(TRANSLATION) --language $(TR_LANG)
 
 # ---------------------------------------------------------------- verify ---
 verify: extract

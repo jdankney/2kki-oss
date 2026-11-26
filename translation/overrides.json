@@ -1,0 +1,28 @@
+{
+  "messages": {
+    "\\>エラー：Time Trial Modeでセーブできてしまいました\n\\>\n\\>\n\\>タイトル画面へ戻ります": "\\>Error: cannot save in Time Trial Mode\n\\>\n\\>\n\\>Returning to the title screen",
+    "\n\\>　／       ／\n\\>♪再生中：カーソル移動音 \\<\\.\\.\\^": "\n\\>　／       ／\n\\>♪Playing: Cursor SE \\<\\.\\.\\^",
+    "\n\\>　／       ／\n\\>♪再生中：決定音\\<\\.\\.\\^": "\n\\>　／       ／\n\\>♪Playing: Confirm SE\\<\\.\\.\\^",
+    "\n\\>　／       ／\n\\>♪再生中：キャンセル音\\<\\.\\.\\^": "\n\\>　／       ／\n\\>♪Playing: Cancel SE\\<\\.\\.\\^",
+    "\\>　※Time Trial Modeではセーブ機能を使えません※　\n\\>プレイ時間： \\C[4]\\v[87]時間 \\v[86]分 \\v[85]秒\\C[0]\n\\>初クリア　： \\C[4]\\v[3520]時間 \\v[3519]分 \\v[3518]秒\\C[0]\n\\>\\C[2]　　　　(メニュー画面を開いている時間を含めず)": "\\>　※Saving is disabled in Time Trial Mode※　\n\\>Play time: \\C[4]\\v[87]h \\v[86]m \\v[85]s\\C[0]\n\\>First clear: \\C[4]\\v[3520]h \\v[3519]m \\v[3518]s\\C[0]\n\\>\\C[2]　　　　(excluding time spent in the menu)",
+    "\\>　※Time Trial Modeではセーブ機能を使えません※　\n\\>\n\\>プレイ時間： \\C[4]\\v[87]時間 \\v[86]分 \\v[85]秒\\C[0]\n\\>\\C[2]　　　　(メニュー画面を開いている時間を含めず)": "\\>　※Saving is disabled in Time Trial Mode※　\n\\>\n\\>Play time: \\C[4]\\v[87]h \\v[86]m \\v[85]s\\C[0]\n\\>\\C[2]　　　　(excluding time spent in the menu)",
+    "・ON\n・OFF\n・あとで設定する": "・ON\n・OFF\n・Set later",
+    "\\>・壁紙を選ぶ\n\\>・壁紙を読み込み\n\\>・オプション": "\\>・Choose wallpaper\n\\>・Load wallpaper\n\\>・Options",
+    "\\>ゆめ2っきver\\V[7]\\N[4]\\V[9]\\N[2]\\\\pc_backを使用します。\n\\>\\C[4]ファイルが読み込めなかった場合、強制終了します。\\C[0]": "\\>Yume 2kki ver\\V[7]\\N[4]\\V[9]\\N[2]\\\\pc_back will be used.\n\\>\\C[4]If the file cannot be loaded, the game will close.\\C[0]",
+    "\\>・壁紙を読み込む\n\\>・やめる": "\\>・Load wallpaper\n\\>・Cancel",
+    "\\>・ON\n\\>・OFF": "\\>・ON\n\\>・OFF",
+    "\\>・入手済みの全ての壁紙からNew表示を外す\n\\>・入手済みの全ての壁紙にNew表示をつける": "\\>・Remove New flag from all owned wallpapers\n\\>・Add New flag to all owned wallpapers",
+    "\\>・アリ\n\\>・ナシ\n\\>・設定終了": "\\>・Show\n\\>・Hide\n\\>・Finish settings",
+    "\\>・メニュータイプ＆効果音変更\n\\>・PC画面BGM変更\n\\>・デフォルトに戻す\n\\>・設定終了": "\\>・Menu type & SE settings\n\\>・PC screen BGM\n\\>・Restore defaults\n\\>・Finish settings",
+    "\\>以下の設定をデフォルトに戻します。\n\\>メニュータイプ / 効果音 / PC画面BGM": "\\>The following settings will be restored to defaults.\n\\>Menu type / SE / PC screen BGM",
+    "\\>・デフォルトに戻す\n\\>・キャンセル": "\\>・Restore defaults\n\\>・Cancel",
+    "\\>メニュータイプ / 効果音 / PC画面BGM\n\\>…をデフォルトに戻しました。": "\\>Menu type / SE / PC screen BGM\n\\>…have been restored to defaults.",
+    "\\>プレイ記録を見る\n\\>エンディングを見返す\n\\>このウィンドウを閉じる": "\\>View play records\n\\>Review endings\n\\>Close this window",
+    "\\>プレイ記録を見る\n\\>このウィンドウを閉じる": "\\>View play records\n\\>Close this window",
+    "\\>前回セーブまでの死亡回数：\\v[1262]\n\\>ロードしますか？": "\\>Deaths since last save: \\v[1262]\n\\>Load?",
+    "\\>ゲームを終了しますか？": "\\>Quit the game?",
+    "\\> ★ シフトキー拡張機能 ★ ": "\\> ★ Shift key functions ★ ",
+    "\\>お気に入りエフェクト　　:\\N[4]\n\\>\\N[5]クトシフトチェンジ:\\N[6]\n\\>\\C[0]やめる": "\\>Favorite effect　　:\\N[4]\n\\>\\N[5]ct shift change:\\N[6]\n\\>\\C[0]Cancel",
+    "\\>　★「お気に入りエフェクト」機能について★\n※登録エフェクト使用中にシフトを長押しすると、\n　登録エフェクトにチェンジする前に使用していた\n　エフェクトに戻します。": "\\>　★ About the \"Favorite Effect\" feature ★\n※Hold Shift while an effect is active to\n　return to the effect you were using before\n　switching to the registered effect."
+  }
+}
