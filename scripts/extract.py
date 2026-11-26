@@ -304,9 +304,6 @@ def main() -> int:
     xml_dir = Path(args.xml).resolve()
     lcf2xml = Path(args.lcf2xml).resolve()
 
-    if not src.is_dir():
-        sys.exit(f"error: source dir not found: {src}")
-
     if args.xml_only:
         try:
             files, nbytes, skipped, escaped, converted = convert_lcf_to_xml(
@@ -323,6 +320,8 @@ def main() -> int:
               f"{skipped} cached, {escaped} CR-escaped")
         return 0
 
+    if not src.is_dir():
+        sys.exit(f"error: source dir not found: {src}")
     base, patch_roots = choose_roots(src)
     print(f"base game root : {base}")
     for p in patch_roots:

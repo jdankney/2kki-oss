@@ -84,3 +84,8 @@ def test_extract_uses_patch_ini_when_patch_ships_one(tmp_path, game_src, lcf2xml
     ini = (tmp_path / "build" / "game" / "RPG_RT.ini").read_bytes()
     assert b"GameTitle=Patched" in ini
     assert b"Encoding=932" in ini
+
+
+def test_xml_only_does_not_need_original(extracted, lcf2xml):
+    run_script("extract", "--xml-only", "--force-xml", "--src", "does-not-exist",
+               "--lcf2xml", lcf2xml, cwd=extracted)
