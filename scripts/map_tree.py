@@ -8,7 +8,8 @@ from one.
 
 This tool:
 
-  1. keeps the root and every node that has a ``Map*.lmu``;
+  1. keeps the root, every node that has a ``Map*.lmu``, and every area
+     node (which never has a file) whose parent map is kept;
   2. removes dangling map nodes;
   3. reparents kept nodes to their nearest kept ancestor;
   4. materialises inherited music/background when the resolved ancestor was a
@@ -30,6 +31,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT_ID = 0
+AREA_TYPE = 2   # lcf::rpg::TreeMap::MapType: 0 root, 1 map, 2 area
 
 
 def set_text(el: ET.Element, tag: str, value: object) -> None:
@@ -123,6 +125,8 @@ def main() -> int:
     if not existing:
         raise SystemExit(f"error: no Map*.lmu in {game}")
     kept = {ROOT_ID} | (existing & set(tree.nodes))
+    kept |= {mid for mid, n in tree.nodes.items()
+             if n["type"] == AREA_TYPE and n["parent"] in kept}
     missing_in_tree = sorted(existing - set(tree.nodes))
 
     dangling = sorted(i for i in tree.order if i not in kept)

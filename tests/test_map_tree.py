@@ -55,3 +55,19 @@ def test_second_prune_keeps_the_original_backup(tmp_path):
         run_script("map_tree", "--lmt", emt, "--game", "game", "--apply",
                    "--backup", "build/bak.emt", cwd=tmp_path)
     assert (tmp_path / "build" / "bak.emt").read_bytes() == original
+
+
+def test_area_nodes_are_kept_with_their_map(tmp_path):
+    # Areas (type 2) never have a Map*.lmu; they belong to their parent map.
+    emt = make_tree(tmp_path / "xml" / "RPG_RT.emt", [
+        mapinfo(0, 0, mtype=0),
+        mapinfo(1, 0),
+        mapinfo(2, 1, mtype=2),      # area on a kept map
+        mapinfo(3, 0),               # dangling map
+        mapinfo(4, 3, mtype=2),      # area on the dangling map
+    ])
+    write(tmp_path / "game" / "Map0001.lmu", b"x")
+    run_script("map_tree", "--lmt", emt, "--game", "game", "--apply",
+               "--backup", "build/bak.emt", cwd=tmp_path)
+    ids = sorted(int(el.get("id")) for el in ET.parse(emt).getroot().iter("MapInfo"))
+    assert ids == [0, 1, 2]
