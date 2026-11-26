@@ -173,6 +173,10 @@ def write_ini(src_ini: Path, dst_ini: Path, dry: bool) -> None:
         text += "\n[EasyRPG]\nEncoding=932\n"
     if not dry:
         dst_ini.parent.mkdir(parents=True, exist_ok=True)
+        # dst may be a hardlink to original/ (place() links non-LCF files);
+        # writing through it would modify the read-only source.
+        if dst_ini.exists() or dst_ini.is_symlink():
+            dst_ini.unlink()
         dst_ini.write_bytes(text.encode(TARGET_ENC))
 
 
@@ -354,9 +358,13 @@ def main() -> int:
     for s, d, _ch, _layer in patch_plan:
         place(s, d, args.copy, args.dry_run)
 
-    ini_src = base / INI_NAME
+    # Patch layers override the base, so the last layer to ship an ini wins.
     ini_dst = game_dir / INI_NAME
-    if ini_src.is_file():
+    ini_src = None
+    for s, d, _ch, _layer in plan + patch_plan:
+        if d == ini_dst:
+            ini_src = s
+    if ini_src is not None:
         write_ini(ini_src, ini_dst, args.dry_run)
 
     # ---- LCF -> XML ------------------------------------------------------
