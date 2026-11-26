@@ -272,10 +272,11 @@ def cmd_apply(args) -> int:
     ok = True
     for e in manifest.get("modified", []):
         if e.get("kind") == "full":
-            (xml / e["path"]).parent.mkdir(parents=True, exist_ok=True)
-            # copyfile, not copy2: the copy must get a fresh mtime or
-            # `make data` treats the older checked-out file as up to date.
-            shutil.copyfile(content / e["file"], xml / e["path"])
+            if not args.dry_run:
+                (xml / e["path"]).parent.mkdir(parents=True, exist_ok=True)
+                # copyfile, not copy2: the copy must get a fresh mtime or
+                # `make data` treats the older checked-out file as up to date.
+                shutil.copyfile(content / e["file"], xml / e["path"])
             print(f"  copy {e['path']}")
             continue
         status, detail = apply_patch(xml, content / e["patch"], args.dry_run)
@@ -287,8 +288,9 @@ def cmd_apply(args) -> int:
         else:
             print(f"  patch {e['path']}")
     for e in manifest.get("added", []):
-        (xml / e["path"]).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(content / e["file"], xml / e["path"])
+        if not args.dry_run:
+            (xml / e["path"]).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(content / e["file"], xml / e["path"])
         print(f"  add  {e['path']}")
     for rel in manifest.get("deleted", []):
         p = xml / rel

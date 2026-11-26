@@ -61,3 +61,17 @@ def test_conflicting_patch_fails_without_touching_xml(tmp_path):
     assert res.returncode == 1
     assert "FAIL Map0002.emu" in res.stderr
     assert snapshot(tmp_path / "xml") == before
+
+
+def test_dry_run_changes_nothing(tmp_path):
+    write(tmp_path / "xml" / "Map0001.emu", "base\n")
+    write(tmp_path / "xml" / "Map0002.emu", "one\ntwo\n")
+    write(tmp_path / "content" / "files" / "Map0001.emu", "full\n")
+    write(tmp_path / "content" / "files" / "Map9999.emu", "new\n")
+    entry = make_patch(tmp_path, "Map0002.emu", "one\ntwo\n", "one\nTWO\n")
+    make_content(tmp_path, modified=[
+        entry, {"path": "Map0001.emu", "file": "files/Map0001.emu", "kind": "full"}],
+        added=[{"path": "Map9999.emu", "file": "files/Map9999.emu"}])
+    before = snapshot(tmp_path / "xml")
+    apply(tmp_path, "--dry-run")
+    assert snapshot(tmp_path / "xml") == before
